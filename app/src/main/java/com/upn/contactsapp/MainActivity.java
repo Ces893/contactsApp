@@ -1,6 +1,7 @@
 package com.upn.contactsapp;
 
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.widget.NestedScrollView;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -10,6 +11,7 @@ import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
+import android.widget.ProgressBar;
 import android.widget.Toast;
 
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
@@ -34,6 +36,10 @@ public class MainActivity extends AppCompatActivity {
 
     List<Contact> elementos = new ArrayList<>();
     ContactAdaptar adaptar;
+    private final int LIMIT = 10;
+    private int PAGE = 1;
+    private boolean isLoading = false;
+    ProgressBar progressBar;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -51,13 +57,12 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
-
         AppDatabase db = AppDatabase.getInstance(this);
         ContactDAO contactDAO = db.contactDAO();
 
 
         List<Contact> contacts = contactDAO.getAll();
-        elementos.addAll(contacts);
+        //elementos.addAll(contacts);
 
 
         Retrofit retrofit = new Retrofit.Builder()
@@ -67,33 +72,48 @@ public class MainActivity extends AppCompatActivity {
 
         ContactService service = retrofit.create(ContactService.class);
 
-        service.getAll().enqueue(new Callback< List<Contact> >() {
+        NestedScrollView nestedScrollView = findViewById(R.id.nestedScroll);
+        progressBar = findViewById(R.id.progBar);
+
+        loadContacts(service);
+        progressBar.setVisibility(View.VISIBLE);
+
+        nestedScrollView.setOnScrollChangeListener(new NestedScrollView.OnScrollChangeListener() {
             @Override
-            public void onResponse(Call<List<Contact>> call, Response< List<Contact> > response) {
-                //if (response.code() == 200)
-                Log.i("MAIN_APP", String.valueOf(response.code()));
-                if (response.isSuccessful()){
-                    //elementos = response.body();
-                    elementos.clear();
-                    elementos.addAll(response.body());
-                    adaptar.notifyDataSetChanged();
-
-                    for(Contact contact: response.body()) {
-                        Contact localContact = contactDAO.findRemote(contact.id);
-                        if (localContact == null) {
-                            contactDAO.insert(contact);
-                        }
-                    }
-
+            public void onScrollChange(NestedScrollView v, int scrollX, int scrollY, int oldScrollX, int oldScrollY) {
+                if (v.getChildAt(0).getBottom() <= (v.getHeight() + v.getScrollY()) && !isLoading) {
+                    loadContacts(service);
                 }
-                // aca puedo trabajar con el resultado
-            }
-
-            @Override
-            public void onFailure(Call<List<Contact>> call, Throwable throwable) {
-                Log.e("MAIN_APP", throwable.getMessage());
             }
         });
+
+//        service.getAll().enqueue(new Callback< List<Contact> >() {
+//            @Override
+//            public void onResponse(Call<List<Contact>> call, Response< List<Contact> > response) {
+//                //if (response.code() == 200)
+//                Log.i("MAIN_APP", String.valueOf(response.code()));
+//                if (response.isSuccessful()){
+//                    //elementos = response.body();
+//                    elementos.clear();
+//                    elementos.addAll(response.body());
+//                    adaptar.notifyDataSetChanged();
+//
+//                    for(Contact contact: response.body()) {
+//                        Contact localContact = contactDAO.findRemote(contact.id);
+//                        if (localContact == null) {
+//                            contactDAO.insert(contact);
+//                        }
+//                    }
+//
+//                }
+//                // aca puedo trabajar con el resultado
+//            }
+//
+//            @Override
+//            public void onFailure(Call<List<Contact>> call, Throwable throwable) {
+//                Log.e("MAIN_APP", throwable.getMessage());
+//            }
+//        });
 
         setUpRecyclerView();
 
@@ -103,37 +123,36 @@ public class MainActivity extends AppCompatActivity {
             startActivityForResult(intent, 100);
         });
 
-        Log.i("MAIN_APP", new Gson().toJson(contacts));
-
-        for (Contact contact: contacts) {
-            if (contact.id != 0) continue;
-            service.create(contact).enqueue(new Callback<Contact>() {
-                @Override
-                public void onResponse(Call<Contact> call, Response<Contact> response) {
-                    Log.i("MAIN_APP", String.valueOf(response.code()));
-
-                    if (response.isSuccessful()) {
-
-                        Contact newContact = response.body();
-
-                        Intent intent = getIntent();
-                        intent.putExtra("CONTACT", new Gson().toJson(newContact));
-                        contactDAO.update(contact.localId, newContact.id);
-
-                    }
-
-                }
-
-                @Override
-                public void onFailure(Call<Contact> call, Throwable throwable) {
-                    Log.e("MAIN_APP", throwable.getMessage());
-                }
-            });
-        }
+//        Log.i("MAIN_APP", new Gson().toJson(contacts));
+//
+//        for (Contact contact: contacts) {
+//            if (contact.id != 0) continue;
+//            service.create(contact).enqueue(new Callback<Contact>() {
+//                @Override
+//                public void onResponse(Call<Contact> call, Response<Contact> response) {
+//                    Log.i("MAIN_APP", String.valueOf(response.code()));
+//
+//                    if (response.isSuccessful()) {
+//
+//                        Contact newContact = response.body();
+//
+//                        Intent intent = getIntent();
+//                        intent.putExtra("CONTACT", new Gson().toJson(newContact));
+//                        contactDAO.update(contact.localId, newContact.id);
+//
+//                    }
+//                }
+//                @Override
+//                public void onFailure(Call<Contact> call, Throwable throwable) {
+//                    Log.e("MAIN_APP", throwable.getMessage());
+//                }
+//            });
+//        }
 
     }
 
-     @Override
+
+    @Override
      protected void onActivityResult(int requestCode, int resultCode, Intent data) {
          super.onActivityResult(requestCode, resultCode, data);
 
@@ -153,5 +172,31 @@ public class MainActivity extends AppCompatActivity {
 
         adaptar = new ContactAdaptar(elementos);
         rvContacts.setAdapter(adaptar);
+    }
+
+    private void loadContacts(ContactService service) {
+        if (isLoading) return;
+        isLoading = true;
+        progressBar.setVisibility(View.VISIBLE);
+
+        service.getContacts(LIMIT, PAGE).enqueue(new Callback<List<Contact>>() {
+            @Override
+            public void onResponse(Call<List<Contact>> call, Response<List<Contact>> response) {
+                if (response.isSuccessful() && response.body() != null) {
+                    List<Contact> newContacts = response.body();
+                    elementos.addAll(newContacts);
+                    adaptar.notifyDataSetChanged();
+                    PAGE++;
+                }
+                progressBar.setVisibility(View.GONE);
+                isLoading = false;
+            }
+
+            @Override
+            public void onFailure(Call<List<Contact>> call, Throwable t) {
+                progressBar.setVisibility(View.GONE);
+                isLoading = false;
+            }
+        });
     }
 }

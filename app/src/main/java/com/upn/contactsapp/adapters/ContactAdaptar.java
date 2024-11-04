@@ -71,4 +71,5 @@ public class ContactAdaptar extends RecyclerView.Adapter<ContactAdaptar.ContactV
          super(itemView);
      }
     }
+
 }
